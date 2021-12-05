@@ -15,6 +15,8 @@ enum ModalScaleState {
 final class InteractiveModalPresentationController: UIPresentationController {
     
     private var presentedHeight: CGFloat = 200
+    private var topCurve: CGFloat = 20
+    
     private var direction: CGFloat = 0
     private var state: ModalScaleState = .interaction
     private lazy var dimmingView: UIView! = {
@@ -35,6 +37,10 @@ final class InteractiveModalPresentationController: UIPresentationController {
         presentedViewController.view.addGestureRecognizer(
             UIPanGestureRecognizer(target: self, action: #selector(didPan(pan:)))
         )
+        
+        if let presented = presentedView {
+            setTopClip(view: presented, curve: topCurve)
+        }
     }
     
     @objc func didPan(pan: UIPanGestureRecognizer) {
@@ -77,14 +83,23 @@ final class InteractiveModalPresentationController: UIPresentationController {
     func changeScale(to state: ModalScaleState) {
         guard let presented = presentedView else { return }
         
-        UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0.5, options: .curveEaseInOut, animations: { [weak self] in
-            guard let `self` = self else { return }
-            
-            presented.frame = self.frameOfPresentedViewInContainerView
-            
-            }, completion: { (isFinished) in
-                self.state = state
-        })
+        UIView.animate(withDuration: 0.5, delay: 0, options: .curveEaseInOut) { [weak self] in
+                guard let `self` = self else { return }
+                
+                presented.frame = self.frameOfPresentedViewInContainerView
+        } completion: { (isFinished) in
+            self.state = state
+        }
+
+        
+//        UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0.5, options: .curveEaseInOut, animations: { [weak self] in
+//            guard let `self` = self else { return }
+//
+//            presented.frame = self.frameOfPresentedViewInContainerView
+//
+//            }, completion: { (isFinished) in
+//                self.state = state
+//        })
     }
     
     override var frameOfPresentedViewInContainerView: CGRect {
@@ -126,27 +141,78 @@ final class InteractiveModalPresentationController: UIPresentationController {
     
     func changeHeight() {
         guard let container = containerView else { return }
+        guard let presentedView = presentedView else { return }
         let maxHeight = presentingViewController.view.frame.height
         
+        let lastHeight = presentedHeight
         
         let minHeight = CGFloat(200)
         presentedHeight = CGFloat(arc4random())
             .truncatingRemainder(dividingBy: maxHeight - minHeight) + minHeight
         
-        
-        UIView.animate(withDuration: 0.5,
-                       delay: 0,
-                       usingSpringWithDamping: 0.5,
-                       initialSpringVelocity: 0.5,
-                       options: .curveEaseIn,
-                       animations: {
+        UIView.animate(withDuration: 0.5, delay: 0, options: .curveEaseInOut) { [weak self] in
+            guard let `self` = self else { return }
             
-            self.presentedView?.frame.size.height = self.presentedHeight
-            self.presentedView?.frame.origin.y = container.bounds.height - self.presentedHeight
-            self.presentedView?.layoutIfNeeded()
-            
-        }, completion: nil)
+            presentedView.frame.size.height = self.presentedHeight
+            presentedView.frame.origin.y = container.bounds.height - self.presentedHeight
+            presentedView.layoutIfNeeded()
+        } completion: { _ in }
         
+        let startCurve: CGFloat = topCurve + ((lastHeight - presentedHeight) / 14)
+        setTopClip(view: presentedView, curve: startCurve)
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            self.animatePath(view: presentedView,
+                             curve1: startCurve,
+                             curve2: self.topCurve,
+                             duration: 0.15)
+        }
     }
+    
+    let shapeLayer = CAShapeLayer()
 }
 
+extension InteractiveModalPresentationController {
+    
+    func makePath(view: UIView, curve: CGFloat) -> CGPath {
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: 0, y: 70 - curve))
+        
+        path.addCurve(to: CGPoint(x: view.frame.width, y: 70 - curve),
+                      controlPoint1: CGPoint(x: view.frame.width * 0.333, y: curve),
+                      controlPoint2: CGPoint(x: view.frame.width * 0.666, y: curve))
+        
+        
+        
+        path.addLine(to: CGPoint(x: view.frame.width, y: view.frame.height))
+        path.addLine(to: CGPoint(x: 0, y: view.frame.height))
+        path.addLine(to: CGPoint(x: 0, y: view.frame.width / 2))
+
+        path.close()
+        
+        return path.cgPath
+    }
+    
+    func setTopClip(view: UIView, curve: CGFloat) {
+        
+        shapeLayer.path = makePath(view: view, curve: curve)
+        view.layer.mask = shapeLayer
+    }
+    
+    func animatePath(view: UIView,
+                     curve1: CGFloat,
+                     curve2: CGFloat,
+                     duration: CFTimeInterval) {
+        
+        (view.layer.mask as? CAShapeLayer)?.path = makePath(view: view, curve: curve1)
+        
+        let animation = CABasicAnimation(keyPath: "path")
+        animation.duration = duration
+        animation.fromValue = makePath(view: view, curve: curve1)
+        animation.toValue = makePath(view: view, curve: curve2)
+        animation.timingFunction = CAMediaTimingFunction(name: CAMediaTimingFunctionName.easeInEaseOut)
+        view.layer.mask?.add(animation, forKey: "path")
+        
+        (view.layer.mask as? CAShapeLayer)?.path = makePath(view: view, curve: curve2)
+    }
+}

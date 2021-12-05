@@ -23,6 +23,7 @@ class JellyDialogViewController: UIViewController {
         view.addSubview(btn)
         view.centerXAnchor.constraint(equalTo: btn.centerXAnchor).isActive = true
         view.topAnchor.constraint(equalTo: btn.topAnchor, constant: -100).isActive = true
+        
     }
     
     @objc func changeHeight() {
@@ -30,4 +31,5 @@ class JellyDialogViewController: UIViewController {
             delegate.modalPresentationController.changeHeight()
         }
     }
+    
 }
