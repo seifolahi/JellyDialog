@@ -43,6 +43,10 @@ final class InteractiveModalPresentationController: UIPresentationController {
         }
     }
     
+    var samplePans: [CGFloat] = []
+    var lastSampleTime = 0
+    var lastSMA = CGFloat(0)
+    
     @objc func didPan(pan: UIPanGestureRecognizer) {
         guard let view = pan.view, let superView = view.superview,
             let presented = presentedView, let container = containerView else { return }
@@ -52,6 +56,7 @@ final class InteractiveModalPresentationController: UIPresentationController {
         switch pan.state {
         case .began:
             presented.frame.size.height = presentedHeight
+            samplePans.removeAll()
         case .changed:
             let velocity = pan.velocity(in: superView)
             
@@ -63,7 +68,28 @@ final class InteractiveModalPresentationController: UIPresentationController {
                 presented.frame.origin.y = location.y
             }
             direction = velocity.y
+            
+            let second = Int(Date().timeIntervalSince1970 * 10)
+            if lastSampleTime != second {
+                lastSampleTime = second
+                samplePans.append(location.y)
+                
+                if samplePans.count > 10 {
+                    samplePans.removeFirst()
+                }
+                
+                let sma = samplePans.reduce(CGFloat(0), +) / CGFloat(samplePans.count)
+                let smaDiff = (sma - location.y) / 4
+                lastSMA = smaDiff
+                setTopClip(view: presented, curve: smaDiff)
+            }
         case .ended:
+            
+            self.animatePath(view: presented,
+                             curve1: lastSMA,
+                             curve2: self.topCurve,
+                             duration: 0.15)
+            
             let maxPresentedY = container.frame.height
             switch presented.frame.origin.y {
             case 0...maxPresentedY:
