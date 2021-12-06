@@ -28,7 +28,7 @@ class JellyDialogViewController: UIViewController {
     
     @objc func changeHeight() {
         if let delegate = transitioningDelegate as? InteractiveModalTransitioningDelegate {
-            delegate.modalPresentationController.changeHeight()
+//            delegate.modalPresentationController.changeHeight()
         }
     }
     

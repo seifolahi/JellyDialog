@@ -14,7 +14,9 @@ enum ModalScaleState {
 
 final class InteractiveModalPresentationController: UIPresentationController {
     
-    private var presentedHeight: CGFloat = 200
+    private let shapeLayer = CAShapeLayer()
+    
+    private var presentedHeight: CGFloat = 300
     private var topCurve: CGFloat = 20
     
     private var direction: CGFloat = 0
@@ -39,13 +41,9 @@ final class InteractiveModalPresentationController: UIPresentationController {
         )
         
         if let presented = presentedView {
-            setTopClip(view: presented, curve: topCurve)
+            setTopClip(view: presented, pressPoint: nil)
         }
     }
-    
-    var samplePans: [CGFloat] = []
-    var lastSampleTime = 0
-    var lastSMA = CGFloat(0)
     
     @objc func didPan(pan: UIPanGestureRecognizer) {
         guard let view = pan.view, let superView = view.superview,
@@ -56,39 +54,24 @@ final class InteractiveModalPresentationController: UIPresentationController {
         switch pan.state {
         case .began:
             presented.frame.size.height = presentedHeight
-            samplePans.removeAll()
         case .changed:
             let velocity = pan.velocity(in: superView)
             
             switch state {
             case .interaction:
-                
-                presented.frame.origin.y = location.y + container.bounds.height - self.presentedHeight
+                let tmpLoc = pan.location(in: presented)
+                setTopClip(view: presented, pressPoint: tmpLoc)
             case .presentation:
                 presented.frame.origin.y = location.y
             }
             direction = velocity.y
-            
-            let second = Int(Date().timeIntervalSince1970 * 10)
-            if lastSampleTime != second {
-                lastSampleTime = second
-                samplePans.append(location.y)
-                
-                if samplePans.count > 10 {
-                    samplePans.removeFirst()
-                }
-                
-                let sma = samplePans.reduce(CGFloat(0), +) / CGFloat(samplePans.count)
-                let smaDiff = (sma - location.y) / 4
-                lastSMA = smaDiff
-                setTopClip(view: presented, curve: smaDiff)
-            }
         case .ended:
             
+            let tmpLoc = pan.location(in: presented)
             self.animatePath(view: presented,
-                             curve1: lastSMA,
+                             pressPoint: tmpLoc,
                              curve2: self.topCurve,
-                             duration: 0.15)
+                             duration: 0.2)
             
             let maxPresentedY = container.frame.height
             switch presented.frame.origin.y {
@@ -165,51 +148,48 @@ final class InteractiveModalPresentationController: UIPresentationController {
         }
     }
     
-    func changeHeight() {
-        guard let container = containerView else { return }
-        guard let presentedView = presentedView else { return }
-        let maxHeight = presentingViewController.view.frame.height
-        
-        let lastHeight = presentedHeight
-        
-        let minHeight = CGFloat(200)
-        presentedHeight = CGFloat(arc4random())
-            .truncatingRemainder(dividingBy: maxHeight - minHeight) + minHeight
-        
-        UIView.animate(withDuration: 0.5, delay: 0, options: .curveEaseInOut) { [weak self] in
-            guard let `self` = self else { return }
-            
-            presentedView.frame.size.height = self.presentedHeight
-            presentedView.frame.origin.y = container.bounds.height - self.presentedHeight
-            presentedView.layoutIfNeeded()
-        } completion: { _ in }
-        
-        let startCurve: CGFloat = topCurve + ((lastHeight - presentedHeight) / 14)
-        setTopClip(view: presentedView, curve: startCurve)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            self.animatePath(view: presentedView,
-                             curve1: startCurve,
-                             curve2: self.topCurve,
-                             duration: 0.15)
-        }
-    }
     
-    let shapeLayer = CAShapeLayer()
 }
 
 extension InteractiveModalPresentationController {
     
-    func makePath(view: UIView, curve: CGFloat) -> CGPath {
+    func makePath(view: UIView, pressPoint: CGPoint?) -> CGPath {
         
         let maxPossibleHeight = UIScreen.main.bounds.height
         
-        let path = UIBezierPath()
-        path.move(to: CGPoint(x: 0, y: 70 - curve))
+        let eadgeHeight = CGFloat(70)
+        let corner = CGFloat(16)
         
-        path.addCurve(to: CGPoint(x: view.frame.width, y: 70 - curve),
-                      controlPoint1: CGPoint(x: view.frame.width * 0.333, y: curve),
-                      controlPoint2: CGPoint(x: view.frame.width * 0.666, y: curve))
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: 0, y: eadgeHeight + corner))
+        
+        path.addArc(withCenter: CGPoint(x: corner, y: eadgeHeight + corner),
+                    radius: corner,
+                    startAngle: CGFloat.pi,
+                    endAngle: CGFloat.pi * (3/2),
+                    clockwise: true)
+        
+        if var pressPoint = pressPoint, pressPoint.y <= eadgeHeight {
+            if pressPoint.y < 0 {
+                pressPoint.y = 0
+            }
+            path.addCurve(to: pressPoint,
+                          controlPoint1: CGPoint(x: pressPoint.x - 60, y: eadgeHeight),
+                          controlPoint2: CGPoint(x: pressPoint.x - 60, y: pressPoint.y))
+            
+            
+            path.addCurve(to: CGPoint(x: view.frame.width - corner, y: eadgeHeight),
+                          controlPoint1: CGPoint(x: pressPoint.x + 60, y: pressPoint.y),
+                          controlPoint2: CGPoint(x: pressPoint.x + 60, y: eadgeHeight))
+        } else {
+            path.addLine(to: CGPoint(x: view.frame.width - corner, y: eadgeHeight))
+        }
+        
+        path.addArc(withCenter: CGPoint(x: view.frame.width - corner, y: eadgeHeight + corner),
+                    radius: corner,
+                    startAngle: CGFloat.pi * (3/2),
+                    endAngle: 0,
+                    clockwise: true)
         
         path.addLine(to: CGPoint(x: view.frame.width, y: maxPossibleHeight))
         path.addLine(to: CGPoint(x: 0, y: maxPossibleHeight))
@@ -220,26 +200,27 @@ extension InteractiveModalPresentationController {
         return path.cgPath
     }
     
-    func setTopClip(view: UIView, curve: CGFloat) {
+    func setTopClip(view: UIView, pressPoint: CGPoint?) {
         
-        shapeLayer.path = makePath(view: view, curve: curve)
+        shapeLayer.path = makePath(view: view, pressPoint: pressPoint)
         view.layer.mask = shapeLayer
     }
     
     func animatePath(view: UIView,
-                     curve1: CGFloat,
+                     pressPoint: CGPoint,
                      curve2: CGFloat,
                      duration: CFTimeInterval) {
-        
-        (view.layer.mask as? CAShapeLayer)?.path = makePath(view: view, curve: curve1)
-        
+
+        (view.layer.mask as? CAShapeLayer)?.path = makePath(view: view, pressPoint: pressPoint)
+
         let animation = CABasicAnimation(keyPath: "path")
         animation.duration = duration
-        animation.fromValue = makePath(view: view, curve: curve1)
-        animation.toValue = makePath(view: view, curve: curve2)
-        animation.timingFunction = CAMediaTimingFunction(name: CAMediaTimingFunctionName.easeInEaseOut)
-        view.layer.mask?.add(animation, forKey: "path")
+        animation.fromValue = makePath(view: view, pressPoint: pressPoint)
+        animation.toValue = makePath(view: view, pressPoint: CGPoint(x: pressPoint.x, y: 70))
+        animation.timingFunction = CAMediaTimingFunction(name: CAMediaTimingFunctionName.easeIn)
         
-        (view.layer.mask as? CAShapeLayer)?.path = makePath(view: view, curve: curve2)
+        view.layer.mask?.add(animation, forKey: "path")
+
+        (view.layer.mask as? CAShapeLayer)?.path = makePath(view: view, pressPoint: CGPoint(x: pressPoint.x, y: 70))
     }
 }
