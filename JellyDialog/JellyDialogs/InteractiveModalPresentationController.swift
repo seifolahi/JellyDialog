@@ -51,7 +51,7 @@ final class InteractiveModalPresentationController: UIPresentationController {
         
         switch pan.state {
         case .began:
-            presented.frame.size.height = presentedHeight//container.frame.height
+            presented.frame.size.height = presentedHeight
         case .changed:
             let velocity = pan.velocity(in: superView)
             
@@ -175,6 +175,9 @@ final class InteractiveModalPresentationController: UIPresentationController {
 extension InteractiveModalPresentationController {
     
     func makePath(view: UIView, curve: CGFloat) -> CGPath {
+        
+        let maxPossibleHeight = UIScreen.main.bounds.height
+        
         let path = UIBezierPath()
         path.move(to: CGPoint(x: 0, y: 70 - curve))
         
@@ -182,10 +185,8 @@ extension InteractiveModalPresentationController {
                       controlPoint1: CGPoint(x: view.frame.width * 0.333, y: curve),
                       controlPoint2: CGPoint(x: view.frame.width * 0.666, y: curve))
         
-        
-        
-        path.addLine(to: CGPoint(x: view.frame.width, y: view.frame.height))
-        path.addLine(to: CGPoint(x: 0, y: view.frame.height))
+        path.addLine(to: CGPoint(x: view.frame.width, y: maxPossibleHeight))
+        path.addLine(to: CGPoint(x: 0, y: maxPossibleHeight))
         path.addLine(to: CGPoint(x: 0, y: view.frame.width / 2))
 
         path.close()
